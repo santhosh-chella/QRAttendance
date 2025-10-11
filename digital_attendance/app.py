@@ -97,7 +97,7 @@ def mark_attendance(user_id):
 # Streamlit UI Setup
 # ==============================
 st.set_page_config(page_title="Digital Attendance", page_icon="🧾", layout="wide")
-st.title("🧾 Digital Attendance System (HD Camera Support)")
+st.title("🧾 Digital Attendance System ")
 
 menu = ["Register User", "Mark Attendance", "View Data"]
 choice = st.sidebar.radio("Select Option", menu)
@@ -141,7 +141,7 @@ if choice == "Register User":
 # Mark Attendance
 # ==============================
 elif choice == "Mark Attendance":
-    st.header("📸 Mark Attendance (HD Camera Enabled)")
+    st.header("📸 Mark Attendance ")
     st.info("Allow camera permission for best quality.")
 
     class QRScanner(VideoTransformerBase):
