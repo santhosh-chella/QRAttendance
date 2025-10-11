@@ -5,7 +5,6 @@ import qrcode
 from PIL import Image
 import os
 from datetime import datetime, date
-import av
 import cv2
 from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 
@@ -34,20 +33,24 @@ def save_user(name, roll, branch, image_file):
     user_id = f"{roll}_{name}".replace(" ", "_")
     df = pd.read_csv(USER_CSV)
 
+    # Duplicate detection
     if user_id in df["user_id"].values:
         row = df[df["user_id"] == user_id].iloc[0]
         return row["qr_path"], row["image_path"], user_id, True
 
+    # Save face image
     img_path = ""
     if image_file:
         img = Image.open(image_file).convert("RGB")
         img_path = os.path.join("faces", f"{user_id}.jpg")
         img.save(img_path)
 
+    # Generate QR code
     qr_img = qrcode.make(user_id)
     qr_path = os.path.join("qrcodes", f"{user_id}.png")
     qr_img.save(qr_path)
 
+    # Add user to CSV
     new_row = {
         "user_id": user_id,
         "name": name,
@@ -64,15 +67,17 @@ def mark_attendance(user_id):
     df_users = pd.read_csv(USER_CSV)
     df_att = pd.read_csv(ATTENDANCE_CSV)
     user = df_users[df_users["user_id"] == user_id]
+
     if user.empty:
         return None, "❌ User not found!"
 
     user_info = user.iloc[0].to_dict()
     today = date.today().strftime("%Y-%m-%d")
 
+    # Prevent duplicate attendance
     already = ((df_att["user_id"] == user_id) & (df_att["date"] == today)).any()
     if already:
-        return user_info, "⚠️ Already Registered Today!"
+        return user_info, "⚠️ Already registered today!"
 
     now = datetime.now().strftime("%H:%M:%S")
     new_entry = {
@@ -86,7 +91,7 @@ def mark_attendance(user_id):
     }
     df_att.loc[len(df_att)] = new_entry
     df_att.to_csv(ATTENDANCE_CSV, index=False)
-    return user_info, "✅ Attendance Marked Successfully!"
+    return user_info, "✅ Attendance marked successfully!"
 
 # ==============================
 # Streamlit UI Setup
@@ -97,8 +102,6 @@ st.title("🧾 Digital Attendance System (HD Camera Support)")
 menu = ["Register User", "Mark Attendance", "View Data"]
 choice = st.sidebar.radio("Select Option", menu)
 
-if "qr_message" not in st.session_state:
-    st.session_state["qr_message"] = "📷 Show your QR code to mark attendance."
 if "user_info" not in st.session_state:
     st.session_state["user_info"] = None
 
@@ -111,28 +114,35 @@ if choice == "Register User":
         name = st.text_input("Name")
         roll = st.text_input("Roll Number")
         branch = st.text_input("Branch")
-        image_file = st.file_uploader("Upload Face Image (Optional)", type=["jpg", "jpeg", "png"])
+        image_file = st.file_uploader("Upload Face Image (Optional)", type=["jpg","jpeg","png"])
         submit_btn = st.form_submit_button("Register")
 
-        if submit_btn:
-            if name.strip() and roll.strip() and branch.strip():
-                qr_path, img_path, user_id, exists = save_user(name, roll, branch, image_file)
-                if exists:
-                    st.warning("⚠️ User already registered.")
-                else:
-                    st.success("✅ User registered successfully!")
-                st.image(qr_path, width=200)
-                with open(qr_path, "rb") as f:
-                    st.download_button("Download QR", f, file_name=os.path.basename(qr_path), mime="image/png")
+    if submit_btn:
+        if name.strip() and roll.strip() and branch.strip():
+            qr_path, img_path, user_id, exists = save_user(name, roll, branch, image_file)
+            if exists:
+                st.warning("⚠️ User already registered.")
             else:
-                st.error("❌ Fill all fields: Name, Roll, Branch.")
+                st.success("✅ User registered successfully!")
+
+            st.image(qr_path, width=200)
+            with open(qr_path, "rb") as f:
+                st.download_button(
+                    label="📥 Download QR",
+                    data=f,
+                    file_name=os.path.basename(qr_path),
+                    mime="image/png",
+                    use_container_width=True
+                )
+        else:
+            st.error("❌ Fill all fields: Name, Roll, Branch.")
 
 # ==============================
-# Mark Attendance (HD Camera)
+# Mark Attendance
 # ==============================
 elif choice == "Mark Attendance":
     st.header("📸 Mark Attendance (HD Camera Enabled)")
-    st.info("Works on mobile & desktop. Allow camera permission for best quality.")
+    st.info("Allow camera permission for best quality.")
 
     class QRScanner(VideoTransformerBase):
         def __init__(self):
@@ -142,57 +152,45 @@ elif choice == "Mark Attendance":
         def transform(self, frame):
             image = frame.to_ndarray(format="bgr24")
             data, bbox, _ = self.detector.detectAndDecode(image)
-            if bbox is not None:
-                pts = bbox.astype(int).reshape(-1, 2)
-                for i in range(len(pts)):
-                    cv2.line(image, tuple(pts[i]), tuple(pts[(i + 1) % len(pts)]), (0, 255, 0), 2)
 
+            # Draw QR bounding box
+            if bbox is not None:
+                pts = bbox.astype(int).reshape(-1,2)
+                for i in range(len(pts)):
+                    cv2.line(image, tuple(pts[i]), tuple(pts[(i+1)%len(pts)]), (0,255,0), 2)
+
+            # Process detected QR code
             if data:
                 user_id = data.strip()
                 if user_id and user_id != self.last_id:
                     user_info, msg = mark_attendance(user_id)
-                    st.session_state["qr_message"] = msg
                     st.session_state["user_info"] = user_info
+                    st.toast(msg)  # <-- Real popup notification
                     self.last_id = user_id
 
             return image
 
-    # High-resolution camera constraints (720p HD)
+    # Launch camera with HD resolution
     webrtc_streamer(
         key="qrscan_hd",
         video_transformer_factory=QRScanner,
         media_stream_constraints={
-            "video": {
-                "width": {"ideal": 1280},   # HD width
-                "height": {"ideal": 720},   # HD height
-                "facingMode": "environment"  # rear camera on mobile
-            },
+            "video": {"width":{"ideal":1280}, "height":{"ideal":720}, "facingMode":"environment"},
             "audio": False
         },
         async_transform=True
     )
 
-    st.markdown("---")
-    msg = st.session_state["qr_message"]
-    user = st.session_state["user_info"]
-
-    if "✅" in msg:
-        st.success(msg)
-    elif "⚠️" in msg:
-        st.warning(msg)
-    elif "❌" in msg:
-        st.error(msg)
-    else:
-        st.info(msg)
-
+    # Show user info panel
+    user = st.session_state.get("user_info", None)
     if user:
-        left, right = st.columns([2, 1])
+        left, right = st.columns([2,1])
         with left:
             st.write(f"**Name:** {user.get('name','')}")
             st.write(f"**Roll Number:** {user.get('roll_number','')}")
             st.write(f"**Branch:** {user.get('branch','')}")
         with right:
-            img_path = safe_str(user.get("image_path", ""))
+            img_path = safe_str(user.get("image_path",""))
             if img_path and os.path.exists(img_path):
                 st.image(img_path, width=160)
 
