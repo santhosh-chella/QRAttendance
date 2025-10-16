@@ -98,27 +98,59 @@ def mark_attendance(user_id):
 # Slide-in popup message
 # ==============================
 def slidein_message(msg, type_="info"):
+    color_map = {
+        "success": "#22bb33",
+        "warning": "#ffcc00",
+        "error": "#ff4444",
+        "info": "#007bff"
+    }
+    bg_color = color_map.get(type_, "#007bff")
     css = f"""
     <style>
     .custom-slidein {{
         position: fixed;
-        top: 80px;
+        top: 20px;
         right: -400px;
-        z-index: 9001;
-        background: {'#22bb33' if type_=='success' else '#ffcc00' if type_=='warning' else '#ff5555' if type_=='error' else '#007bff'};
+        z-index: 9999;
+        background: {bg_color};
         color: white;
-        padding: 1rem 2.5rem 1rem 1.5rem;
-        border-radius: 8px;
-        font-size: 1.1rem;
-        font-weight: bold;
-        box-shadow: 0 5px 18px 0 rgba(0,0,0,0.15);
-        animation: slidein 2.5s cubic-bezier(.7,-0.27,.91,.17) forwards;
+        padding: 1rem 2rem;
+        border-radius: 10px;
+        font-size: 1rem;
+        font-weight: 600;
+        box-shadow: 0 5px 20px rgba(0,0,0,0.2);
+        animation: slidein 3s cubic-bezier(.25,.1,.25,1) forwards;
+        transition: all 0.3s ease-in-out;
+        max-width: 80vw;
+        word-wrap: break-word;
     }}
     @keyframes slidein {{
         0% {{ right: -400px; opacity: 0; }}
-        17% {{ right: 36px; opacity: .86; }}
-        90% {{ right: 36px; opacity: .86; }}
-        100% {{right: -400px; opacity: 0; }}
+        15% {{ right: 20px; opacity: 1; }}
+        85% {{ right: 20px; opacity: 1; }}
+        100% {{ right: -400px; opacity: 0; }}
+    }}
+    /* ✅ Responsive layout adjustments */
+    @media (max-width: 768px) {{
+        .custom-slidein {{
+            top: 10px;
+            right: 10px;
+            left: 10px;
+            width: auto;
+            font-size: 0.9rem;
+            padding: 0.8rem 1.5rem;
+            border-radius: 8px;
+        }}
+    }}
+
+    @media (max-width: 480px) {{
+        .custom-slidein {{
+            top: 8px;
+            font-size: 0.85rem;
+            padding: 0.7rem 1.2rem;
+            border-radius: 8px;
+            text-align: center;
+        }}
     }}
     </style>
     <div class="custom-slidein">{msg}</div>
@@ -233,38 +265,66 @@ elif choice == "Mark Attendance":
                 self.overlay_color = (255,255,255)
                 self.current_user = None
 
-            # Draw overlay on video: status text at top-left
+            # ==============================
+            # Responsive Overlay + User Info
+            # ==============================
             if self.overlay_message:
-                # background rounded-ish box for status
                 txt = self.overlay_message
-                (text_w, text_h), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, 1.0, 3)
-                pad_x, pad_y = 20, 18
-                box_w = text_w + pad_x*2
+                frame_h, frame_w = image.shape[:2]
+
+                # scale factor based on video width (1280px reference)
+                scale = frame_w / 1280
+
+                # status box text size & padding
+                font_scale = 1.0 * scale
+                thickness = max(int(3 * scale), 1)
+                (text_w, text_h), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
+                pad_x, pad_y = int(20 * scale), int(18 * scale)
+
+                # status box position
+                box_w = text_w + pad_x * 2
                 box_h = text_h + pad_y
-                box_x, box_y = 30, 30
+                box_x = int(30 * scale)
+                box_y = int(30 * scale)
 
-                # semi-transparent rectangle for status
+                # draw status background
                 self._draw_transparent_rect(image, box_x, box_y, box_w, box_h, color=self.overlay_color[::-1], alpha=0.8)
-                # put status text (white)
-                cv2.putText(image, txt, (box_x + pad_x, box_y + box_h - 8), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255,255,255), 2, cv2.LINE_AA)
+                # draw status text
+                cv2.putText(image, txt, (box_x + pad_x, box_y + box_h - int(8*scale)),
+                            cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255,255,255), thickness, cv2.LINE_AA)
 
-                # draw user details box below status if user data exists
+                # draw user info box below status if user exists
                 user = self.current_user if self.current_user else st.session_state.get("user_info", None)
                 if user:
-                    # info box dimensions
-                    info_w = 360
-                    info_h = 120
-                    info_x = box_x
-                    info_y = box_y + box_h + 14
+                    # user info text lines
+                    lines = [
+                        f"Name: {user.get('name','')}",
+                        f"Roll: {user.get('roll_number','')}",
+                        f"Branch: {user.get('branch','')}",
+                        f"ID: {user.get('user_id','')}"
+                    ]
 
-                    # background
+                    # thumbnail size & position
+                    thumb_w = int(100 * scale)
+                    thumb_h = int(100 * scale)
+                    thumb_x = box_x + int(10 * scale)
+                    thumb_y = box_y + box_h + int(14 * scale)
+
+                    # compute max text width
+                    text_font_scale = 0.7 * scale
+                    text_thickness = max(int(2 * scale), 1)
+                    max_text_w = max(cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, text_font_scale, text_thickness)[0][0] for line in lines)
+
+                    # info box dimensions
+                    info_w = thumb_w + int(14*scale) + max_text_w + int(10*scale)  # thumbnail + gap + text + padding
+                    info_h = max(thumb_h + int(20*scale), int(len(lines)*26*scale + 10*scale))  # enough for all text
+                    info_x = box_x
+                    info_y = thumb_y - int(10*scale)
+
+                    # draw info box background
                     self._draw_transparent_rect(image, info_x, info_y, info_w, info_h, color=(40,40,40), alpha=0.6)
 
-                    # optional thumbnail
-                    thumb_w = 100
-                    thumb_h = 100
-                    thumb_x = info_x + 10
-                    thumb_y = info_y + 10
+                    # draw thumbnail
                     if user.get("image_path"):
                         try:
                             img_path = safe_str(user.get("image_path",""))
@@ -272,31 +332,47 @@ elif choice == "Mark Attendance":
                                 thumb = cv2.imread(img_path)
                                 if thumb is not None:
                                     thumb = cv2.resize(thumb, (thumb_w, thumb_h))
-                                    # paste thumbnail onto image
                                     image[thumb_y:thumb_y+thumb_h, thumb_x:thumb_x+thumb_w] = thumb
                                 else:
-                                    # draw placeholder
                                     cv2.rectangle(image, (thumb_x, thumb_y), (thumb_x+thumb_w, thumb_y+thumb_h), (120,120,120), 2)
                             else:
                                 cv2.rectangle(image, (thumb_x, thumb_y), (thumb_x+thumb_w, thumb_y+thumb_h), (120,120,120), 2)
-                        except Exception as e:
+                        except:
                             cv2.rectangle(image, (thumb_x, thumb_y), (thumb_x+thumb_w, thumb_y+thumb_h), (120,120,120), 2)
                     else:
                         cv2.rectangle(image, (thumb_x, thumb_y), (thumb_x+thumb_w, thumb_y+thumb_h), (120,120,120), 2)
 
-                    # text lines to the right of thumbnail
-                    text_x = thumb_x + thumb_w + 14
-                    text_y = thumb_y + 20
-                    lines = [
-                        f"Name: {user.get('name','')}",
-                        f"Roll: {user.get('roll_number','')}",
-                        f"Branch: {user.get('branch','')}",
-                        f"ID: {user.get('user_id','')}"
-                    ]
+                    # draw text to right of thumbnail
+                    text_x = thumb_x + thumb_w + int(14*scale)
+                    text_y = thumb_y + int(20*scale)
+                    line_height = int(26*scale)
+
                     for i, line in enumerate(lines):
-                        cv2.putText(image, line, (text_x, text_y + i*26), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2, cv2.LINE_AA)
+                        # wrap text if too long
+                        max_width = info_w - (thumb_w + int(14*scale) + int(10*scale))
+                        wrapped_lines = []
+                        words = line.split(" ")
+                        current_line = ""
+                        for word in words:
+                            test_line = (current_line + " " + word).strip()
+                            w, _ = cv2.getTextSize(test_line, cv2.FONT_HERSHEY_SIMPLEX, text_font_scale, text_thickness)[0]
+                            if w <= max_width:
+                                current_line = test_line
+                            else:
+                                wrapped_lines.append(current_line)
+                                current_line = word
+                        wrapped_lines.append(current_line)
+
+                        # draw wrapped lines
+                        for j, wline in enumerate(wrapped_lines):
+                            y_pos = text_y + (i*len(wrapped_lines) + j)*line_height
+                            cv2.putText(image, wline, (text_x, y_pos), cv2.FONT_HERSHEY_SIMPLEX,
+                                        text_font_scale, (255,255,255), text_thickness, cv2.LINE_AA)
 
             return image
+
+
+
 
     webrtc_streamer(
         key="qrscan_hd",
