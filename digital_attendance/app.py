@@ -34,9 +34,10 @@ def save_user(name, roll, branch, image_file):
     user_id = f"{roll}_{name}".replace(" ", "_")
     df = pd.read_csv(USER_CSV)
 
-    if user_id in df["user_id"].values:
-        row = df[df["user_id"] == user_id].iloc[0]
-        return row["qr_path"], row["image_path"], user_id, True
+    # Ensure unique roll number
+    if int(roll) in df["roll_number"].values:
+        row = df[df["roll_number"] == int(roll)].iloc[0]
+        return row["qr_path"], row["image_path"], row["user_id"], True
 
     img_path = ""
     if image_file:
@@ -48,16 +49,10 @@ def save_user(name, roll, branch, image_file):
     qr_path = os.path.join("qrcodes", f"{user_id}.png")
     qr_img.save(qr_path)
 
-    # append new user
-    if os.path.exists(USER_CSV):
-        df = pd.read_csv(USER_CSV)
-    else:
-        df = pd.DataFrame(columns=["user_id", "name", "roll_number", "branch", "image_path", "qr_path"])
-
     new_row = {
         "user_id": user_id,
         "name": name,
-        "roll_number": roll,
+        "roll_number": int(roll),
         "branch": branch,
         "image_path": img_path,
         "qr_path": qr_path
@@ -109,20 +104,20 @@ def slidein_message(msg, type_="info"):
     <style>
     .custom-slidein {{
         position: fixed;
-        top: 20px;
+        top: 70px;
         right: -400px;
         z-index: 9999;
         background: {bg_color};
-        color: white;
+        color: #fff;
         padding: 1rem 2rem;
         border-radius: 10px;
         font-size: 1rem;
         font-weight: 600;
         box-shadow: 0 5px 20px rgba(0,0,0,0.2);
         animation: slidein 3s cubic-bezier(.25,.1,.25,1) forwards;
-        transition: all 0.3s ease-in-out;
         max-width: 80vw;
         word-wrap: break-word;
+        text-align: left;
     }}
     @keyframes slidein {{
         0% {{ right: -400px; opacity: 0; }}
@@ -130,24 +125,25 @@ def slidein_message(msg, type_="info"):
         85% {{ right: 20px; opacity: 1; }}
         100% {{ right: -400px; opacity: 0; }}
     }}
-    /* ✅ Responsive layout adjustments */
     @media (max-width: 768px) {{
         .custom-slidein {{
-            top: 10px;
+            top: 70px;
             right: 10px;
             left: 10px;
-            width: auto;
             font-size: 0.9rem;
             padding: 0.8rem 1.5rem;
             border-radius: 8px;
+            text-align: center;
         }}
     }}
-
     @media (max-width: 480px) {{
         .custom-slidein {{
-            top: 8px;
+            top: 10px;
+            right: 5px;
+            left: 5px;
+            width: calc(100% - 10px);
             font-size: 0.85rem;
-            padding: 0.7rem 1.2rem;
+            padding: 0.7rem 1rem;
             border-radius: 8px;
             text-align: center;
         }}
@@ -177,19 +173,22 @@ if "last_popup" not in st.session_state:
 if choice == "Register User":
     st.header("👤 Register New User")
     with st.form("register_form", clear_on_submit=True):
-        name = st.text_input("Name")
-        roll = st.text_input("Roll Number")
-        branch = st.text_input("Branch")
+        name = st.text_input("Name", "")
+        roll = st.text_input("Roll Number", "")
+        branch = st.text_input("Branch", "")
         image_file = st.file_uploader("Upload Face Image (Optional)", type=["jpg","jpeg","png"])
         submit_btn = st.form_submit_button("Submit")
 
     if submit_btn:
         if name.strip() and roll.strip() and branch.strip():
-            qr_path, img_path, user_id, exists = save_user(name, roll, branch, image_file)
-            st.session_state["last_popup"] = "duplicate" if exists else "success"
-            st.image(qr_path, width=200)
-            with open(qr_path, "rb") as f:
-                st.download_button("📥 Download QR", f, os.path.basename(qr_path), mime="image/png", use_container_width=True)
+            if not roll.isdigit():
+                st.session_state["last_popup"] = "error"
+            else:
+                qr_path, img_path, user_id, exists = save_user(name.strip(), roll.strip(), branch.strip(), image_file)
+                st.session_state["last_popup"] = "duplicate" if exists else "success"
+                st.image(qr_path, width=200)
+                with open(qr_path, "rb") as f:
+                    st.download_button("📥 Download QR", f, os.path.basename(qr_path), mime="image/png", use_container_width=True)
         else:
             st.session_state["last_popup"] = "error"
 
@@ -209,62 +208,50 @@ elif choice == "Mark Attendance":
             self.overlay_color = (255,255,255)
             self.message_timeout = 4  # seconds
             self.message_shown_time = 0
-            self.current_user = None  # store current user info here (dict) for easy access in transform()
+            self.current_user = None
 
         def _draw_transparent_rect(self, img, x, y, w, h, color=(0,0,0), alpha=0.6):
-            """Draw a filled, semi-transparent rectangle"""
             overlay = img.copy()
             cv2.rectangle(overlay, (x, y), (x+w, y+h), color, -1)
             cv2.addWeighted(overlay, alpha, img, 1 - alpha, 0, img)
 
-        def _put_text_multiline(self, img, lines, origin, line_height=24, font_scale=0.7, color=(255,255,255), thickness=1):
-            x, y = origin
-            for i, line in enumerate(lines):
-                cv2.putText(img, line, (x, y + i*line_height), cv2.FONT_HERSHEY_SIMPLEX, font_scale, color, thickness, cv2.LINE_AA)
-
         def transform(self, frame):
             image = frame.to_ndarray(format="bgr24")
-            h, w, _ = image.shape
-
             data, bbox, _ = self.detector.detectAndDecode(image)
 
-            # Draw QR bounding box
             if bbox is not None:
                 pts = bbox.astype(int).reshape(-1,2)
                 for i in range(len(pts)):
                     cv2.line(image, tuple(pts[i]), tuple(pts[(i+1)%len(pts)]), (0,255,0), 2)
 
-            # Process QR code
             if data:
                 user_id = data.strip()
                 if user_id and user_id != self.last_id and (time.time() - self.last_time > 1.5):
                     user_info, status = mark_attendance(user_id)
-                    # store info both in session_state and locally
                     st.session_state["user_info"] = user_info
                     st.session_state["last_popup"] = status
                     self.current_user = user_info
 
-                    # Overlay message (short text)
                     if status == "success":
-                        self.overlay_message = "✅ Attendance Marked"
+                        self.overlay_message = " Attendance Marked"
                         self.overlay_color = (0,200,0)
                     elif status == "duplicate":
-                        self.overlay_message = "⚠️ Already Marked"
+                        self.overlay_message = " Already Marked"
                         self.overlay_color = (0,200,200)
                     elif status == "not_found":
-                        self.overlay_message = "❌ User Not Found"
+                        self.overlay_message = " User Not Found"
                         self.overlay_color = (0,0,200)
 
                     self.last_id = user_id
                     self.last_time = time.time()
                     self.message_shown_time = time.time()
 
-            # Reset overlay after timeout
             if self.overlay_message and (time.time() - self.message_shown_time > self.message_timeout):
                 self.overlay_message = ""
                 self.overlay_color = (255,255,255)
                 self.current_user = None
 
+            
             # ==============================
             # Responsive Overlay + User Info
             # ==============================
@@ -371,36 +358,30 @@ elif choice == "Mark Attendance":
 
             return image
 
-
-
-
     webrtc_streamer(
         key="qrscan_hd",
         video_transformer_factory=QRScanner,
-        media_stream_constraints={
-            "video": {"width":{"ideal":1280},"height":{"ideal":720},"facingMode":"environment"},
-            "audio": False
-        },
+        media_stream_constraints={"video":{"width":{"ideal":1280},"height":{"ideal":720},"facingMode":"environment"},"audio":False},
         async_transform=True
     )
 
 # ==============================
-# Handle slide-in popup outside video
+# Slide-in popup handler
 # ==============================
 if st.session_state.get("last_popup"):
     popup = st.session_state["last_popup"]
     if popup == "success":
-        slidein_message("✅ Attendance marked successfully!", "success")
+        slidein_message("✔ Registered Successfully!", "success")
     elif popup == "duplicate":
-        slidein_message("⚠️ Already registered today!", "warning")
+        slidein_message("! User already registered!", "warning")
     elif popup == "not_found":
-        slidein_message("❌ User not found!", "error")
+        slidein_message("X User not found!", "error")
     elif popup == "error":
-        slidein_message("❌ Fill all fields!", "error")
+        slidein_message("⚠ Fill all fields correctly!", "error")
     st.session_state["last_popup"] = ""  # reset
 
 # ==============================
-# Show user info in UI (beside video)
+# Show user info in UI
 # ==============================
 if choice=="Mark Attendance":
     user = st.session_state.get("user_info", None)
