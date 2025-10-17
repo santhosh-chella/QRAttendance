@@ -8,13 +8,37 @@ import cv2
 from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 import time
 import numpy as np
-import pathlib
+from pathlib import Path
 
 # ==============================
-# Setup directories & CSV files (Local/Per Device)
+# Setup directories (Local & Per Device)
 # ==============================
-LOCAL_STORAGE = os.path.join(pathlib.Path.home(), ".digital_attendance")
-os.makedirs(LOCAL_STORAGE, exist_ok=True)
+def get_device_local_path():
+    """
+    Detects the environment and returns a valid, writable local directory:
+      - Android: /data/data/com.termux/files/home/.digital_attendance  (AppData equivalent)
+      - or fallback: /storage/emulated/0/digital_attendance (accessible folder)
+      - Desktop/Laptop: ~/digital_attendance
+    """
+    # Android Termux / Pydroid 3 internal app data
+    appdata_path = "/data/data/com.termux/files/home/.digital_attendance"
+    if os.path.exists("/data/data/com.termux"):
+        os.makedirs(appdata_path, exist_ok=True)
+        return appdata_path
+
+    # Android external storage (accessible)
+    if os.path.exists("/storage/emulated/0"):
+        phone_path = "/storage/emulated/0/digital_attendance"
+        os.makedirs(phone_path, exist_ok=True)
+        return phone_path
+
+    # Default for Windows/Linux/Mac
+    default_path = os.path.join(Path.home(), "digital_attendance")
+    os.makedirs(default_path, exist_ok=True)
+    return default_path
+
+
+LOCAL_STORAGE = get_device_local_path()
 
 FACES_DIR = os.path.join(LOCAL_STORAGE, "faces")
 QRCODES_DIR = os.path.join(LOCAL_STORAGE, "qrcodes")
@@ -24,6 +48,10 @@ os.makedirs(QRCODES_DIR, exist_ok=True)
 USER_CSV = os.path.join(LOCAL_STORAGE, "users.csv")
 ATTENDANCE_CSV = os.path.join(LOCAL_STORAGE, "attendance.csv")
 
+
+# ==============================
+# Initialize CSV files
+# ==============================
 def init_csv(path, columns):
     if not os.path.exists(path):
         pd.DataFrame(columns=columns).to_csv(path, index=False)
@@ -31,11 +59,13 @@ def init_csv(path, columns):
 init_csv(USER_CSV, ["user_id", "name", "roll_number", "branch", "image_path", "qr_path"])
 init_csv(ATTENDANCE_CSV, ["user_id", "name", "roll_number", "branch", "image_path", "date", "timestamp"])
 
+
 # ==============================
 # Helper Functions
 # ==============================
 def safe_str(value):
     return str(value) if pd.notna(value) else ""
+
 
 def save_user(name, roll, branch, image_file):
     user_id = f"{roll}_{name}".replace(" ", "_")
@@ -67,6 +97,7 @@ def save_user(name, roll, branch, image_file):
     df.to_csv(USER_CSV, index=False)
     return qr_path, img_path, user_id, False
 
+
 def mark_attendance(user_id):
     df_users = pd.read_csv(USER_CSV)
     df_att = pd.read_csv(ATTENDANCE_CSV)
@@ -95,8 +126,9 @@ def mark_attendance(user_id):
     df_att.to_csv(ATTENDANCE_CSV, index=False)
     return user_info, "success"
 
+
 # ==============================
-# Slide-in popup message
+# Slide-in popup
 # ==============================
 def slidein_message(msg, type_="info"):
     color_map = {
@@ -122,8 +154,7 @@ def slidein_message(msg, type_="info"):
         font-weight: 600;
         box-shadow: 0 5px 20px rgba(0,0,0,0.2);
         max-width: 96vw;
-        word-wrap: break-word;
-        text-align: left;
+        text-align: center;
         animation: slidein 2.4s cubic-bezier(.25,.1,.25,1) forwards;
     }}
     @keyframes slidein {{
@@ -132,22 +163,14 @@ def slidein_message(msg, type_="info"):
         80% {{ top: 8vh; opacity: 1; }}
         100% {{ top: -80px; opacity: 0; }}
     }}
-    @media (max-width: 600px) {{
-        .custom-slidein {{
-            font-size: 0.95rem;
-            padding: 0.7rem 1rem;
-            border-radius: 0.7em;
-            text-align: center;
-            max-width: 98vw;
-        }}
-    }}
     </style>
     <div class="custom-slidein">{msg}</div>
     """
     st.markdown(css, unsafe_allow_html=True)
 
+
 # ==============================
-# Streamlit UI Setup
+# Streamlit App UI
 # ==============================
 st.set_page_config(page_title="Digital Attendance", page_icon="🧾", layout="wide")
 st.title("🧾 Digital Attendance System")
@@ -159,6 +182,8 @@ if "user_info" not in st.session_state:
     st.session_state["user_info"] = None
 if "last_popup" not in st.session_state:
     st.session_state["last_popup"] = ""
+
+st.sidebar.success(f"📁 Files stored at:\n{LOCAL_STORAGE}")
 
 # ==============================
 # Register User
@@ -181,9 +206,10 @@ if choice == "Register User":
                 st.session_state["last_popup"] = "duplicate" if exists else "success"
                 st.image(qr_path, width=200)
                 with open(qr_path, "rb") as f:
-                    st.download_button("📥 Download QR", f, os.path.basename(qr_path), mime="image/png", use_container_width=True)
+                    st.download_button("📥 Download QR", f, os.path.basename(qr_path), mime="image/png")
         else:
             st.session_state["last_popup"] = "error"
+
 
 # ==============================
 # Mark Attendance
@@ -199,7 +225,7 @@ elif choice == "Mark Attendance":
             self.last_time = time.time()
             self.overlay_message = ""
             self.overlay_color = (255,255,255)
-            self.message_timeout = 4  # seconds
+            self.message_timeout = 4
             self.message_shown_time = 0
             self.current_user = None
 
@@ -226,13 +252,13 @@ elif choice == "Mark Attendance":
                     self.current_user = user_info
 
                     if status == "success":
-                        self.overlay_message = " Attendance Marked"
+                        self.overlay_message = "✔ Attendance Marked"
                         self.overlay_color = (0,200,0)
                     elif status == "duplicate":
-                        self.overlay_message = " Already Marked"
+                        self.overlay_message = "⚠ Already Marked"
                         self.overlay_color = (0,200,200)
                     elif status == "not_found":
-                        self.overlay_message = " User Not Found"
+                        self.overlay_message = "❌ User Not Found"
                         self.overlay_color = (0,0,200)
 
                     self.last_id = user_id
@@ -244,44 +270,66 @@ elif choice == "Mark Attendance":
                 self.overlay_color = (255,255,255)
                 self.current_user = None
 
-            # ==============================
+             # ==============================
             # Responsive Overlay + User Info
             # ==============================
             if self.overlay_message:
                 txt = self.overlay_message
                 frame_h, frame_w = image.shape[:2]
+
+                # scale factor based on video width (1280px reference)
                 scale = frame_w / 1280
+
+                # status box text size & padding
                 font_scale = 1.0 * scale
                 thickness = max(int(3 * scale), 1)
                 (text_w, text_h), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
                 pad_x, pad_y = int(20 * scale), int(18 * scale)
+
+                # status box position
                 box_w = text_w + pad_x * 2
                 box_h = text_h + pad_y
                 box_x = int(30 * scale)
                 box_y = int(30 * scale)
+
+                # draw status background
                 self._draw_transparent_rect(image, box_x, box_y, box_w, box_h, color=self.overlay_color[::-1], alpha=0.8)
+                # draw status text
                 cv2.putText(image, txt, (box_x + pad_x, box_y + box_h - int(8*scale)),
                             cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255,255,255), thickness, cv2.LINE_AA)
 
+                # draw user info box below status if user exists
                 user = self.current_user if self.current_user else st.session_state.get("user_info", None)
                 if user:
+                    # user info text lines
                     lines = [
                         f"Name: {user.get('name','')}",
                         f"Roll: {user.get('roll_number','')}",
                         f"Branch: {user.get('branch','')}",
                         f"ID: {user.get('user_id','')}"
                     ]
+
+                    # thumbnail size & position
                     thumb_w = int(100 * scale)
                     thumb_h = int(100 * scale)
                     thumb_x = box_x + int(10 * scale)
                     thumb_y = box_y + box_h + int(14 * scale)
-                    max_text_w = max(cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.7*scale, max(int(2*scale),1))[0][0] for line in lines)
-                    info_w = thumb_w + int(14*scale) + max_text_w + int(10*scale)
-                    info_h = max(thumb_h + int(20*scale), int(len(lines)*26*scale + 10*scale))
+
+                    # compute max text width
+                    text_font_scale = 0.7 * scale
+                    text_thickness = max(int(2 * scale), 1)
+                    max_text_w = max(cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, text_font_scale, text_thickness)[0][0] for line in lines)
+
+                    # info box dimensions
+                    info_w = thumb_w + int(14*scale) + max_text_w + int(10*scale)  # thumbnail + gap + text + padding
+                    info_h = max(thumb_h + int(20*scale), int(len(lines)*26*scale + 10*scale))  # enough for all text
                     info_x = box_x
                     info_y = thumb_y - int(10*scale)
+
+                    # draw info box background
                     self._draw_transparent_rect(image, info_x, info_y, info_w, info_h, color=(40,40,40), alpha=0.6)
 
+                    # draw thumbnail
                     if user.get("image_path"):
                         try:
                             img_path = safe_str(user.get("image_path",""))
@@ -299,18 +347,20 @@ elif choice == "Mark Attendance":
                     else:
                         cv2.rectangle(image, (thumb_x, thumb_y), (thumb_x+thumb_w, thumb_y+thumb_h), (120,120,120), 2)
 
+                    # draw text to right of thumbnail
                     text_x = thumb_x + thumb_w + int(14*scale)
                     text_y = thumb_y + int(20*scale)
                     line_height = int(26*scale)
 
                     for i, line in enumerate(lines):
+                        # wrap text if too long
                         max_width = info_w - (thumb_w + int(14*scale) + int(10*scale))
                         wrapped_lines = []
                         words = line.split(" ")
                         current_line = ""
                         for word in words:
                             test_line = (current_line + " " + word).strip()
-                            w, _ = cv2.getTextSize(test_line, cv2.FONT_HERSHEY_SIMPLEX, 0.7*scale, max(int(2*scale),1))[0]
+                            w, _ = cv2.getTextSize(test_line, cv2.FONT_HERSHEY_SIMPLEX, text_font_scale, text_thickness)[0]
                             if w <= max_width:
                                 current_line = test_line
                             else:
@@ -318,10 +368,11 @@ elif choice == "Mark Attendance":
                                 current_line = word
                         wrapped_lines.append(current_line)
 
+                        # draw wrapped lines
                         for j, wline in enumerate(wrapped_lines):
                             y_pos = text_y + (i*len(wrapped_lines) + j)*line_height
                             cv2.putText(image, wline, (text_x, y_pos), cv2.FONT_HERSHEY_SIMPLEX,
-                                        0.7*scale, (255,255,255), max(int(2*scale),1), cv2.LINE_AA)
+                                        text_font_scale, (255,255,255), text_thickness, cv2.LINE_AA)
 
             return image
 
@@ -332,23 +383,25 @@ elif choice == "Mark Attendance":
         async_transform=True
     )
 
+
 # ==============================
-# Slide-in popup handler
+# Popup message handler
 # ==============================
 if st.session_state.get("last_popup"):
     popup = st.session_state["last_popup"]
     if popup == "success":
         slidein_message("✔ Registered Successfully!", "success")
     elif popup == "duplicate":
-        slidein_message("! User already registered!", "warning")
+        slidein_message("⚠ User already registered!", "warning")
     elif popup == "not_found":
-        slidein_message("X User not found!", "error")
+        slidein_message("❌ User not found!", "error")
     elif popup == "error":
         slidein_message("⚠ Fill all fields correctly!", "error")
     st.session_state["last_popup"] = ""
 
+
 # ==============================
-# Show user info in UI
+# Show user info
 # ==============================
 if choice=="Mark Attendance":
     user = st.session_state.get("user_info", None)
@@ -364,6 +417,7 @@ if choice=="Mark Attendance":
             img_path = safe_str(user.get("image_path",""))
             if img_path and os.path.exists(img_path):
                 st.image(img_path, width=160)
+
 
 # ==============================
 # View Data
