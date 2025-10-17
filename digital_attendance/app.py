@@ -8,14 +8,21 @@ import cv2
 from streamlit_webrtc import webrtc_streamer, VideoTransformerBase
 import time
 import numpy as np
+import pathlib
 
 # ==============================
-# Setup directories & CSV files
+# Setup directories & CSV files (Local/Per Device)
 # ==============================
-USER_CSV = "users.csv"
-ATTENDANCE_CSV = "attendance.csv"
-os.makedirs("faces", exist_ok=True)
-os.makedirs("qrcodes", exist_ok=True)
+LOCAL_STORAGE = os.path.join(pathlib.Path.home(), ".digital_attendance")
+os.makedirs(LOCAL_STORAGE, exist_ok=True)
+
+FACES_DIR = os.path.join(LOCAL_STORAGE, "faces")
+QRCODES_DIR = os.path.join(LOCAL_STORAGE, "qrcodes")
+os.makedirs(FACES_DIR, exist_ok=True)
+os.makedirs(QRCODES_DIR, exist_ok=True)
+
+USER_CSV = os.path.join(LOCAL_STORAGE, "users.csv")
+ATTENDANCE_CSV = os.path.join(LOCAL_STORAGE, "attendance.csv")
 
 def init_csv(path, columns):
     if not os.path.exists(path):
@@ -34,7 +41,6 @@ def save_user(name, roll, branch, image_file):
     user_id = f"{roll}_{name}".replace(" ", "_")
     df = pd.read_csv(USER_CSV)
 
-    # Ensure unique roll number
     if int(roll) in df["roll_number"].values:
         row = df[df["roll_number"] == int(roll)].iloc[0]
         return row["qr_path"], row["image_path"], row["user_id"], True
@@ -42,11 +48,11 @@ def save_user(name, roll, branch, image_file):
     img_path = ""
     if image_file:
         img = Image.open(image_file).convert("RGB")
-        img_path = os.path.join("faces", f"{user_id}.jpg")
+        img_path = os.path.join(FACES_DIR, f"{user_id}.jpg")
         img.save(img_path)
 
     qr_img = qrcode.make(user_id)
-    qr_path = os.path.join("qrcodes", f"{user_id}.png")
+    qr_path = os.path.join(QRCODES_DIR, f"{user_id}.png")
     qr_img.save(qr_path)
 
     new_row = {
@@ -238,67 +244,44 @@ elif choice == "Mark Attendance":
                 self.overlay_color = (255,255,255)
                 self.current_user = None
 
-            
             # ==============================
             # Responsive Overlay + User Info
             # ==============================
             if self.overlay_message:
                 txt = self.overlay_message
                 frame_h, frame_w = image.shape[:2]
-
-                # scale factor based on video width (1280px reference)
                 scale = frame_w / 1280
-
-                # status box text size & padding
                 font_scale = 1.0 * scale
                 thickness = max(int(3 * scale), 1)
                 (text_w, text_h), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)
                 pad_x, pad_y = int(20 * scale), int(18 * scale)
-
-                # status box position
                 box_w = text_w + pad_x * 2
                 box_h = text_h + pad_y
                 box_x = int(30 * scale)
                 box_y = int(30 * scale)
-
-                # draw status background
                 self._draw_transparent_rect(image, box_x, box_y, box_w, box_h, color=self.overlay_color[::-1], alpha=0.8)
-                # draw status text
                 cv2.putText(image, txt, (box_x + pad_x, box_y + box_h - int(8*scale)),
                             cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255,255,255), thickness, cv2.LINE_AA)
 
-                # draw user info box below status if user exists
                 user = self.current_user if self.current_user else st.session_state.get("user_info", None)
                 if user:
-                    # user info text lines
                     lines = [
                         f"Name: {user.get('name','')}",
                         f"Roll: {user.get('roll_number','')}",
                         f"Branch: {user.get('branch','')}",
                         f"ID: {user.get('user_id','')}"
                     ]
-
-                    # thumbnail size & position
                     thumb_w = int(100 * scale)
                     thumb_h = int(100 * scale)
                     thumb_x = box_x + int(10 * scale)
                     thumb_y = box_y + box_h + int(14 * scale)
-
-                    # compute max text width
-                    text_font_scale = 0.7 * scale
-                    text_thickness = max(int(2 * scale), 1)
-                    max_text_w = max(cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, text_font_scale, text_thickness)[0][0] for line in lines)
-
-                    # info box dimensions
-                    info_w = thumb_w + int(14*scale) + max_text_w + int(10*scale)  # thumbnail + gap + text + padding
-                    info_h = max(thumb_h + int(20*scale), int(len(lines)*26*scale + 10*scale))  # enough for all text
+                    max_text_w = max(cv2.getTextSize(line, cv2.FONT_HERSHEY_SIMPLEX, 0.7*scale, max(int(2*scale),1))[0][0] for line in lines)
+                    info_w = thumb_w + int(14*scale) + max_text_w + int(10*scale)
+                    info_h = max(thumb_h + int(20*scale), int(len(lines)*26*scale + 10*scale))
                     info_x = box_x
                     info_y = thumb_y - int(10*scale)
-
-                    # draw info box background
                     self._draw_transparent_rect(image, info_x, info_y, info_w, info_h, color=(40,40,40), alpha=0.6)
 
-                    # draw thumbnail
                     if user.get("image_path"):
                         try:
                             img_path = safe_str(user.get("image_path",""))
@@ -316,20 +299,18 @@ elif choice == "Mark Attendance":
                     else:
                         cv2.rectangle(image, (thumb_x, thumb_y), (thumb_x+thumb_w, thumb_y+thumb_h), (120,120,120), 2)
 
-                    # draw text to right of thumbnail
                     text_x = thumb_x + thumb_w + int(14*scale)
                     text_y = thumb_y + int(20*scale)
                     line_height = int(26*scale)
 
                     for i, line in enumerate(lines):
-                        # wrap text if too long
                         max_width = info_w - (thumb_w + int(14*scale) + int(10*scale))
                         wrapped_lines = []
                         words = line.split(" ")
                         current_line = ""
                         for word in words:
                             test_line = (current_line + " " + word).strip()
-                            w, _ = cv2.getTextSize(test_line, cv2.FONT_HERSHEY_SIMPLEX, text_font_scale, text_thickness)[0]
+                            w, _ = cv2.getTextSize(test_line, cv2.FONT_HERSHEY_SIMPLEX, 0.7*scale, max(int(2*scale),1))[0]
                             if w <= max_width:
                                 current_line = test_line
                             else:
@@ -337,11 +318,10 @@ elif choice == "Mark Attendance":
                                 current_line = word
                         wrapped_lines.append(current_line)
 
-                        # draw wrapped lines
                         for j, wline in enumerate(wrapped_lines):
                             y_pos = text_y + (i*len(wrapped_lines) + j)*line_height
                             cv2.putText(image, wline, (text_x, y_pos), cv2.FONT_HERSHEY_SIMPLEX,
-                                        text_font_scale, (255,255,255), text_thickness, cv2.LINE_AA)
+                                        0.7*scale, (255,255,255), max(int(2*scale),1), cv2.LINE_AA)
 
             return image
 
@@ -365,7 +345,7 @@ if st.session_state.get("last_popup"):
         slidein_message("X User not found!", "error")
     elif popup == "error":
         slidein_message("⚠ Fill all fields correctly!", "error")
-    st.session_state["last_popup"] = ""  # reset
+    st.session_state["last_popup"] = ""
 
 # ==============================
 # Show user info in UI
