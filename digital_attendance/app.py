@@ -104,48 +104,35 @@ def slidein_message(msg, type_="info"):
     <style>
     .custom-slidein {{
         position: fixed;
-        top: 70px;
-        right: -400px;
+        top: 8vh;
+        right: 2vw;
+        left: 2vw;
         z-index: 9999;
         background: {bg_color};
         color: #fff;
         padding: 1rem 2rem;
-        border-radius: 10px;
-        font-size: 1rem;
+        border-radius: 1em;
+        font-size: 1.1rem;
         font-weight: 600;
         box-shadow: 0 5px 20px rgba(0,0,0,0.2);
-        animation: slidein 3s cubic-bezier(.25,.1,.25,1) forwards;
-        max-width: 80vw;
+        max-width: 96vw;
         word-wrap: break-word;
         text-align: left;
+        animation: slidein 2.4s cubic-bezier(.25,.1,.25,1) forwards;
     }}
     @keyframes slidein {{
-        0% {{ right: -400px; opacity: 0; }}
-        15% {{ right: 20px; opacity: 1; }}
-        85% {{ right: 20px; opacity: 1; }}
-        100% {{ right: -400px; opacity: 0; }}
+        0% {{ top: -80px; opacity: 0; }}
+        10% {{ top: 8vh; opacity: 1; }}
+        80% {{ top: 8vh; opacity: 1; }}
+        100% {{ top: -80px; opacity: 0; }}
     }}
-    @media (max-width: 768px) {{
+    @media (max-width: 600px) {{
         .custom-slidein {{
-            top: 70px;
-            right: 10px;
-            left: 10px;
-            font-size: 0.9rem;
-            padding: 0.8rem 1.5rem;
-            border-radius: 8px;
-            text-align: center;
-        }}
-    }}
-    @media (max-width: 480px) {{
-        .custom-slidein {{
-            top: 10px;
-            right: 5px;
-            left: 5px;
-            width: calc(100% - 10px);
-            font-size: 0.85rem;
+            font-size: 0.95rem;
             padding: 0.7rem 1rem;
-            border-radius: 8px;
+            border-radius: 0.7em;
             text-align: center;
+            max-width: 98vw;
         }}
     }}
     </style>
