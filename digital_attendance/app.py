@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import qrcode
+import shutil
 from PIL import Image
 import os
 from datetime import datetime, date
@@ -418,12 +419,84 @@ if choice=="Mark Attendance":
             if img_path and os.path.exists(img_path):
                 st.image(img_path, width=160)
 
-
 # ==============================
-# View Data
+# View Data + Delete Feature
 # ==============================
-if choice=="View Data":
+if choice == "View Data":
     st.header("📋 Registered Users")
-    st.dataframe(pd.read_csv(USER_CSV))
+
+    df_users = pd.read_csv(USER_CSV)
+    df_att = pd.read_csv(ATTENDANCE_CSV)
+
+    # ---- View Users ----
+    st.dataframe(df_users)
+
+    # ---- View Attendance ----
     st.header("🕒 Attendance Records")
-    st.dataframe(pd.read_csv(ATTENDANCE_CSV))
+    st.dataframe(df_att)
+    
+    # ---- Delete User ----
+    st.subheader("🗑️ Delete User Record")
+    if not df_users.empty:
+        user_to_delete = st.selectbox("Select user to delete", df_users["user_id"].tolist())
+        if st.button("Delete Selected User"):
+            # Delete from users.csv
+            df_users = df_users[df_users["user_id"] != user_to_delete]
+            df_users.to_csv(USER_CSV, index=False)
+
+            # Delete related attendance
+            df_att = df_att[df_att["user_id"] != user_to_delete]
+            df_att.to_csv(ATTENDANCE_CSV, index=False)
+
+            # Delete image and QR files if they exist
+            user_qr = os.path.join(QRCODES_DIR, f"{user_to_delete}.png")
+            user_img = os.path.join(FACES_DIR, f"{user_to_delete}.jpg")
+            for file_path in [user_qr, user_img]:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+
+            slidein_message(f"🗑️ User '{user_to_delete}' deleted successfully!", "success")
+            st.rerun()
+    else:
+        st.info("No users found.")
+
+    st.divider()
+
+    # ---- Delete All Attendance Records (robust, two-step with backup) ----
+    if "confirm_delete_all" not in st.session_state:
+        st.session_state["confirm_delete_all"] = False
+
+    st.subheader("⚠️ Delete All Attendance Records")
+    st.warning("This action will permanently delete all attendance records!")
+
+    # First click toggles confirmation
+    if st.button("Clear All Attendance Data"):
+        st.session_state["confirm_delete_all"] = True
+
+    # Show confirmation UI
+    if st.session_state["confirm_delete_all"]:
+        st.markdown("**Please confirm:** this will permanently remove all attendance rows. A backup will be created automatically.")
+        c1, c2 = st.columns([1,1])
+        with c1:
+            if st.button("✅ Confirm: Delete ALL Attendance"):
+                try:
+                    # Backup first
+                    if os.path.exists(ATTENDANCE_CSV):
+                        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        backup_path = os.path.join(LOCAL_STORAGE, f"attendance_backup_{ts}.csv")
+                        shutil.copy(ATTENDANCE_CSV, backup_path)
+
+                    # Overwrite with empty DataFrame
+                    empty = pd.DataFrame(columns=["user_id", "name", "roll_number", "branch", "image_path", "date", "timestamp"])
+                    empty.to_csv(ATTENDANCE_CSV, index=False)
+
+                    st.session_state["confirm_delete_all"] = False
+                    slidein_message("🗑️ All attendance records deleted successfully! (backup created)", "success")
+                    st.experimental_rerun()
+                except Exception as e:
+                    slidein_message(f"Error deleting attendance: {e}", "error")
+
+        with c2:
+            if st.button("❌ Cancel"):
+                st.session_state["confirm_delete_all"] = False
+                slidein_message("Cancelled deletion.", "info")
