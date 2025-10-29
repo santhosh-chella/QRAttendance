@@ -1,7 +1,0 @@
-# Apple-inspired dark green theme
-[theme]
-primaryColor = "#060202"                # Accent (dark)
-backgroundColor = "#606C38"             # Deep olive green
-secondaryBackgroundColor = "#312D2D"    # Dark brownish panel
-textColor = "#FDFAFA"                   # Soft white text
-font = "sans serif"
