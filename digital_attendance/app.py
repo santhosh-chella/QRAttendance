@@ -176,8 +176,21 @@ def slidein_message(msg, type_="info"):
 st.set_page_config(page_title="Digital Attendance", page_icon="🧾", layout="wide")
 st.title("🧾 Digital Attendance System")
 
-menu = ["Register User", "Mark Attendance", "View Data"]
-choice = st.sidebar.radio("Select Option", menu)
+if "menu" not in st.session_state:
+    st.session_state["menu"] = "Register User"
+
+btn1 = st.sidebar.button("👤 Register User", use_container_width=True)
+btn2 = st.sidebar.button("📸 Mark Attendance", use_container_width=True)
+btn3 = st.sidebar.button("📋 View Data", use_container_width=True)
+
+if btn1:
+    st.session_state["menu"] = "Register User"
+elif btn2:
+    st.session_state["menu"] = "Mark Attendance"
+elif btn3:
+    st.session_state["menu"] = "View Data"
+
+choice = st.session_state["menu"]
 
 if "user_info" not in st.session_state:
     st.session_state["user_info"] = None
@@ -500,3 +513,4 @@ if choice == "View Data":
             if st.button("❌ Cancel"):
                 st.session_state["confirm_delete_all"] = False
                 slidein_message("Cancelled deletion.", "info")
+
