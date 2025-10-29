@@ -11,125 +11,94 @@ import time
 import numpy as np
 from pathlib import Path
 
-# ==============================
-# Setup directories (Local & Per Device)
-# ==============================
-def get_device_local_path():
-    """
-    Detects the environment and returns a valid, writable local directory:
-      - Android: /data/data/com.termux/files/home/.digital_attendance  (AppData equivalent)
-      - or fallback: /storage/emulated/0/digital_attendance (accessible folder)
-      - Desktop/Laptop: ~/digital_attendance
-    """
-    # Android Termux / Pydroid 3 internal app data
-    appdata_path = "/data/data/com.termux/files/home/.digital_attendance"
-    if os.path.exists("/data/data/com.termux"):
-        os.makedirs(appdata_path, exist_ok=True)
-        return appdata_path
+# ---------------------------------
+# PAGE CONFIG
+# ---------------------------------
+st.set_page_config(
+    page_title="Digital Attendance System",
+    page_icon="🧾",
+    layout="centered",
+)
 
-    # Android external storage (accessible)
-    if os.path.exists("/storage/emulated/0"):
-        phone_path = "/storage/emulated/0/digital_attendance"
-        os.makedirs(phone_path, exist_ok=True)
-        return phone_path
+# ---------------------------------
+# SESSION STATE NAVIGATION
+# ---------------------------------
+if "page" not in st.session_state:
+    st.session_state.page = "Home"
 
-    # Default for Windows/Linux/Mac
-    default_path = os.path.join(Path.home(), "digital_attendance")
-    os.makedirs(default_path, exist_ok=True)
-    return default_path
+def set_page(p):
+    st.session_state.page = p
+    st.rerun()
 
+# ---------------------------------
+# CSS Styling
+# ---------------------------------
+st.markdown("""
+<style>
+body {
+    background-color: #FEFAE0;
+}
+.main-title {
+    text-align: center;
+    font-size: 40px;
+    color: #080606;
+    font-weight: 700;
+    margin-top: 20px;       
+    margin-bottom: 50px;
+}
 
-LOCAL_STORAGE = get_device_local_path()
+/* Container for button grid */
+.button-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 20px;
+    justify-items: center;                                 
+    margin-bottom: 30px;
+}
+.button-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 20px;
 
-FACES_DIR = os.path.join(LOCAL_STORAGE, "faces")
-QRCODES_DIR = os.path.join(LOCAL_STORAGE, "qrcodes")
-os.makedirs(FACES_DIR, exist_ok=True)
-os.makedirs(QRCODES_DIR, exist_ok=True)
+    /* Use justify-content to center the whole grid */
+    justify-content: center;
 
-USER_CSV = os.path.join(LOCAL_STORAGE, "users.csv")
-ATTENDANCE_CSV = os.path.join(LOCAL_STORAGE, "attendance.csv")
+    margin-bottom: 30px;
 
+    /* Width 100% lets container stretch full width */
+    width: 100%;
 
-# ==============================
-# Initialize CSV files
-# ==============================
-def init_csv(path, columns):
-    if not os.path.exists(path):
-        pd.DataFrame(columns=columns).to_csv(path, index=False)
+    /* max-width and margin auto centers container if it shrinks */
+    max-width: 600px;   /* optional max width to avoid very wide layout on large screens */
+    margin-left: auto;
+    margin-right: auto;
+}
+            
 
-init_csv(USER_CSV, ["user_id", "name", "roll_number", "branch", "image_path", "qr_path"])
-init_csv(ATTENDANCE_CSV, ["user_id", "name", "roll_number", "branch", "image_path", "date", "timestamp"])
+.stButton > button {
+    background-color: #080606;
+    color: white;
+    border: none;
+    width: 100%;          /* fill grid cell */
+    height: 50px;         /* fixed height */
+    border-radius: 12px;
+    font-size: 18px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    font-weight: 600;       
+    max-width: 200px;     /* max width stops buttons from stretching too far */
+}
 
-
-# ==============================
-# Helper Functions
-# ==============================
-def safe_str(value):
-    return str(value) if pd.notna(value) else ""
-
-
-def save_user(name, roll, branch, image_file):
-    user_id = f"{roll}_{name}".replace(" ", "_")
-    df = pd.read_csv(USER_CSV)
-
-    if int(roll) in df["roll_number"].values:
-        row = df[df["roll_number"] == int(roll)].iloc[0]
-        return row["qr_path"], row["image_path"], row["user_id"], True
-
-    img_path = ""
-    if image_file:
-        img = Image.open(image_file).convert("RGB")
-        img_path = os.path.join(FACES_DIR, f"{user_id}.jpg")
-        img.save(img_path)
-
-    qr_img = qrcode.make(user_id)
-    qr_path = os.path.join(QRCODES_DIR, f"{user_id}.png")
-    qr_img.save(qr_path)
-
-    new_row = {
-        "user_id": user_id,
-        "name": name,
-        "roll_number": int(roll),
-        "branch": branch,
-        "image_path": img_path,
-        "qr_path": qr_path
-    }
-    df.loc[len(df)] = new_row
-    df.to_csv(USER_CSV, index=False)
-    return qr_path, img_path, user_id, False
-
-
-def mark_attendance(user_id):
-    df_users = pd.read_csv(USER_CSV)
-    df_att = pd.read_csv(ATTENDANCE_CSV)
-    user = df_users[df_users["user_id"] == user_id]
-
-    if user.empty:
-        return None, "not_found"
-
-    user_info = user.iloc[0].to_dict()
-    today = date.today().strftime("%Y-%m-%d")
-    already = ((df_att["user_id"] == user_id) & (df_att["date"] == today)).any()
-    if already:
-        return user_info, "duplicate"
-
-    now = datetime.now().strftime("%H:%M:%S")
-    new_entry = {
-        "user_id": user_id,
-        "name": user_info["name"],
-        "roll_number": user_info["roll_number"],
-        "branch": user_info["branch"],
-        "image_path": safe_str(user_info.get("image_path", "")),
-        "date": today,
-        "timestamp": now
-    }
-    df_att.loc[len(df_att)] = new_entry
-    df_att.to_csv(ATTENDANCE_CSV, index=False)
-    return user_info, "success"
+.stButton > button:hover {
+    background-color: #312D2D;       
+    transform: scale(1.05);
+}
+</style>
+""", unsafe_allow_html=True)
 
 
 # ==============================
-# Slide-in popup
+# Slide-in popup with timer
 # ==============================
 def slidein_message(msg, type_="info"):
     color_map = {
@@ -169,67 +138,159 @@ def slidein_message(msg, type_="info"):
     """
     st.markdown(css, unsafe_allow_html=True)
 
+def show_popup(msg, type_="info", duration=3):
+    st.session_state["popup_msg"] = msg
+    st.session_state["popup_type"] = type_
+    st.session_state["popup_start_time"] = time.time()
+    st.session_state["popup_duration"] = duration
+
+def popup_should_show():
+    if "popup_start_time" not in st.session_state:
+        return False
+    elapsed = time.time() - st.session_state["popup_start_time"]
+    return elapsed < st.session_state.get("popup_duration", 3)
+
+# Setup directories (Local & Per Device)
+def get_device_local_path():
+    if os.path.exists("/data/data/com.termux"):
+        path = "/data/data/com.termux/files/home/.digital_attendance"
+    elif os.path.exists("/storage/emulated/0"):
+        path = "/storage/emulated/0/digital_attendance"
+    else:
+        path = os.path.join(Path.home(), "digital_attendance")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+LOCAL_STORAGE = get_device_local_path()
+FACES_DIR = os.path.join(LOCAL_STORAGE, "faces")
+QRCODES_DIR = os.path.join(LOCAL_STORAGE, "qrcodes")
+os.makedirs(FACES_DIR, exist_ok=True)
+os.makedirs(QRCODES_DIR, exist_ok=True)
+
+USER_CSV = os.path.join(LOCAL_STORAGE, "users.csv")
+ATTENDANCE_CSV = os.path.join(LOCAL_STORAGE, "attendance.csv")
+
+def init_csv(path, columns):
+    if not os.path.exists(path):
+        pd.DataFrame(columns=columns).to_csv(path, index=False)
+
+init_csv(USER_CSV, ["user_id", "name", "roll_number", "branch", "image_path", "qr_path"])
+init_csv(ATTENDANCE_CSV, ["user_id", "name", "roll_number", "branch", "image_path", "date", "timestamp"])
+
+# Helper functions
+def safe_str(v):
+    return str(v) if pd.notna(v) else ""
+
+def save_user(name, roll, branch, image_file):
+    user_id = f"{roll}_{name}".replace(" ", "_")
+    df = pd.read_csv(USER_CSV)
+    if int(roll) in df["roll_number"].values:
+        row = df[df["roll_number"] == int(roll)].iloc[0]
+        return row["qr_path"], row["image_path"], row["user_id"], True
+
+    img_path = ""
+    if image_file:
+        img = Image.open(image_file).convert("RGB")
+        img_path = os.path.join(FACES_DIR, f"{user_id}.jpg")
+        img.save(img_path)
+
+    qr_img = qrcode.make(user_id)
+    qr_path = os.path.join(QRCODES_DIR, f"{user_id}.png")
+    qr_img.save(qr_path)
+
+    new_row = {
+        "user_id": user_id,
+        "name": name,
+        "roll_number": int(roll),
+        "branch": branch,
+        "image_path": img_path,
+        "qr_path": qr_path
+    }
+    df.loc[len(df)] = new_row
+    df.to_csv(USER_CSV, index=False)
+    return qr_path, img_path, user_id, False
+
+def mark_attendance(user_id):
+    df_users = pd.read_csv(USER_CSV)
+    df_att = pd.read_csv(ATTENDANCE_CSV)
+    user = df_users[df_users["user_id"] == user_id]
+
+    if user.empty:
+        return None, "not_found"
+
+    user_info = user.iloc[0].to_dict()
+    today = date.today().strftime("%Y-%m-%d")
+    already = ((df_att["user_id"] == user_id) & (df_att["date"] == today)).any()
+    if already:
+        return user_info, "duplicate"
+
+    now = datetime.now().strftime("%H:%M:%S")
+    new_entry = {
+        "user_id": user_id,
+        "name": user_info["name"],
+        "roll_number": user_info["roll_number"],
+        "branch": user_info["branch"],
+        "image_path": safe_str(user_info.get("image_path", "")),
+        "date": today,
+        "timestamp": now
+    }
+    df_att.loc[len(df_att)] = new_entry
+    df_att.to_csv(ATTENDANCE_CSV, index=False)
+    return user_info, "success"
 
 # ==============================
-# Streamlit App UI
+# HOME PAGE
 # ==============================
-st.set_page_config(page_title="Digital Attendance", page_icon="🧾", layout="wide")
-st.title("🧾 Digital Attendance System")
+if st.session_state.page == "Home":
+    st.markdown('<div class="button-grid">', unsafe_allow_html=True)
+    st.markdown("<h1 class='main-title'>Digital Attendance System</h1>", unsafe_allow_html=True)
+    col1, col2, col3 = st.columns(3, gap="large")
 
-if "menu" not in st.session_state:
-    st.session_state["menu"] = "Register User"
+    with col1:
+        if st.button("👤 Register User"):
+            set_page("Register User")
+    with col2:
+        if st.button("📷 Mark Attendance"):
+            set_page("Mark Attendance")
+    with col3:
+        if st.button("📊 View Data"):
+            set_page("View Data")
 
-btn1 = st.sidebar.button("👤 Register User", use_container_width=True)
-btn2 = st.sidebar.button("📸 Mark Attendance", use_container_width=True)
-btn3 = st.sidebar.button("📋 View Data", use_container_width=True)
-
-if btn1:
-    st.session_state["menu"] = "Register User"
-elif btn2:
-    st.session_state["menu"] = "Mark Attendance"
-elif btn3:
-    st.session_state["menu"] = "View Data"
-
-choice = st.session_state["menu"]
-
-if "user_info" not in st.session_state:
-    st.session_state["user_info"] = None
-if "last_popup" not in st.session_state:
-    st.session_state["last_popup"] = ""
-
-
+    st.markdown("<br><br><center>© 2025 Digital Attendance System</center>", unsafe_allow_html=True)
 
 # ==============================
-# Register User
+# REGISTER USER PAGE
 # ==============================
-if choice == "Register User":
+if st.session_state.page == "Register User":
     st.header("👤 Register New User")
+    if st.button("🏠 Back to Home"):
+        set_page("Home")
     with st.form("register_form", clear_on_submit=True):
         name = st.text_input("Name", "")
         roll = st.text_input("Roll Number", "")
         branch = st.text_input("Branch", "")
         image_file = st.file_uploader("Upload Face Image (Optional)", type=["jpg","jpeg","png"])
         submit_btn = st.form_submit_button("Submit")
-
     if submit_btn:
         if name.strip() and roll.strip() and branch.strip():
             if not roll.isdigit():
-                st.session_state["last_popup"] = "error"
+                show_popup("⚠ Fill all fields correctly!", "error")
             else:
                 qr_path, img_path, user_id, exists = save_user(name.strip(), roll.strip(), branch.strip(), image_file)
-                st.session_state["last_popup"] = "duplicate" if exists else "success"
+                show_popup("⚠ User already registered!" if exists else "✔ Registered Successfully!", "warning" if exists else "success")
                 st.image(qr_path, width=200)
                 with open(qr_path, "rb") as f:
                     st.download_button("📥 Download QR", f, os.path.basename(qr_path), mime="image/png")
         else:
-            st.session_state["last_popup"] = "error"
-
+            show_popup("⚠ Fill all fields correctly!", "error")
 
 # ==============================
-# Mark Attendance
+# MARK ATTENDANCE PAGE
 # ==============================
-elif choice == "Mark Attendance":
+if st.session_state.page == "Mark Attendance":
     st.header("📸 Mark Attendance")
+    if st.button("🏠 Back to Home"):
+        set_page("Home")
     st.info("Allow camera permission for best quality.")
 
     class QRScanner(VideoTransformerBase):
@@ -397,121 +458,79 @@ elif choice == "Mark Attendance":
         async_transform=True
     )
 
+# ==============================
+# Show popup if active in session state
+# ==============================
+if "popup_msg" in st.session_state and popup_should_show():
+    slidein_message(st.session_state["popup_msg"], st.session_state.get("popup_type", "info"))
+else:
+    # Clear expired popup
+    for k in ["popup_msg", "popup_type", "popup_start_time", "popup_duration"]:
+        if k in st.session_state:
+            del st.session_state[k]
 
 # ==============================
-# Popup message handler
+# VIEW DATA PAGE
 # ==============================
-if st.session_state.get("last_popup"):
-    popup = st.session_state["last_popup"]
-    if popup == "success":
-        slidein_message("✔ Registered Successfully!", "success")
-    elif popup == "duplicate":
-        slidein_message("⚠ User already registered!", "warning")
-    elif popup == "not_found":
-        slidein_message("❌ User not found!", "error")
-    elif popup == "error":
-        slidein_message("⚠ Fill all fields correctly!", "error")
-    st.session_state["last_popup"] = ""
-
-
-# ==============================
-# Show user info
-# ==============================
-if choice=="Mark Attendance":
-    user = st.session_state.get("user_info", None)
-    if user:
-        left, right = st.columns([2,1])
-        with left:
-            st.markdown("### 👤 User Details")
-            st.write(f"**Name:** {user.get('name','')}")
-            st.write(f"**Roll Number:** {user.get('roll_number','')}")
-            st.write(f"**Branch:** {user.get('branch','')}")
-            st.write(f"**User ID:** {user.get('user_id','')}")
-        with right:
-            img_path = safe_str(user.get("image_path",""))
-            if img_path and os.path.exists(img_path):
-                st.image(img_path, width=160)
-
-# ==============================
-# View Data + Delete Feature
-# ==============================
-if choice == "View Data":
-    st.header("📋 Registered Users")
-
+if st.session_state.page == "View Data":
+    st.header("📊 View Data")
+    if st.button("🏠 Back to Home"):
+        set_page("Home")
+    st.header("👤 Registered User")    
     df_users = pd.read_csv(USER_CSV)
     df_att = pd.read_csv(ATTENDANCE_CSV)
-
-    # ---- View Users ----
     st.dataframe(df_users)
-
-    # ---- View Attendance ----
     st.header("🕒 Attendance Records")
     st.dataframe(df_att)
-    
-    # ---- Delete User ----
+
+    # Delete user record
     st.subheader("🗑️ Delete User Record")
     if not df_users.empty:
         user_to_delete = st.selectbox("Select user to delete", df_users["user_id"].tolist())
         if st.button("Delete Selected User"):
-            # Delete from users.csv
             df_users = df_users[df_users["user_id"] != user_to_delete]
             df_users.to_csv(USER_CSV, index=False)
-
-            # Delete related attendance
             df_att = df_att[df_att["user_id"] != user_to_delete]
             df_att.to_csv(ATTENDANCE_CSV, index=False)
-
-            # Delete image and QR files if they exist
             user_qr = os.path.join(QRCODES_DIR, f"{user_to_delete}.png")
             user_img = os.path.join(FACES_DIR, f"{user_to_delete}.jpg")
             for file_path in [user_qr, user_img]:
                 if os.path.exists(file_path):
                     os.remove(file_path)
-
-            slidein_message(f"🗑️ User '{user_to_delete}' deleted successfully!", "success")
+            show_popup(f"🗑️ User '{user_to_delete}' deleted successfully!", "success")
             st.rerun()
     else:
         st.info("No users found.")
 
     st.divider()
 
-    # ---- Delete All Attendance Records (robust, two-step with backup) ----
+    # Delete all attendance records
     if "confirm_delete_all" not in st.session_state:
         st.session_state["confirm_delete_all"] = False
-
     st.subheader("⚠️ Delete All Attendance Records")
     st.warning("This action will permanently delete all attendance records!")
 
-    # First click toggles confirmation
     if st.button("Clear All Attendance Data"):
         st.session_state["confirm_delete_all"] = True
 
-    # Show confirmation UI
     if st.session_state["confirm_delete_all"]:
         st.markdown("**Please confirm:** this will permanently remove all attendance rows. A backup will be created automatically.")
-        c1, c2 = st.columns([1,1])
+        c1, c2 = st.columns([1, 1])
         with c1:
             if st.button("✅ Confirm: Delete ALL Attendance"):
                 try:
-                    # Backup first
                     if os.path.exists(ATTENDANCE_CSV):
                         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
                         backup_path = os.path.join(LOCAL_STORAGE, f"attendance_backup_{ts}.csv")
                         shutil.copy(ATTENDANCE_CSV, backup_path)
-
-                    # Overwrite with empty DataFrame
-                    empty = pd.DataFrame(columns=["user_id", "name", "roll_number", "branch", "image_path", "date", "timestamp"])
-                    empty.to_csv(ATTENDANCE_CSV, index=False)
-
-                    st.session_state["confirm_delete_all"] = False
-                    slidein_message("🗑️ All attendance records deleted successfully! (backup created)", "success")
-                    st.experimental_rerun()
+                        empty = pd.DataFrame(columns=["user_id", "name", "roll_number", "branch", "image_path", "date", "timestamp"])
+                        empty.to_csv(ATTENDANCE_CSV, index=False)
+                        st.session_state["confirm_delete_all"] = False
+                        show_popup("🗑️ All attendance records deleted successfully! (backup created)", "success")
+                        st.rerun()
                 except Exception as e:
-                    slidein_message(f"Error deleting attendance: {e}", "error")
-
+                    show_popup(f"Error deleting attendance: {e}", "error")
         with c2:
             if st.button("❌ Cancel"):
                 st.session_state["confirm_delete_all"] = False
-                slidein_message("Cancelled deletion.", "info")
-
-
+                show_popup("Cancelled deletion.", "info")
