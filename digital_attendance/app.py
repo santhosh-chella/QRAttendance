@@ -197,7 +197,7 @@ if "user_info" not in st.session_state:
 if "last_popup" not in st.session_state:
     st.session_state["last_popup"] = ""
 
-st.sidebar.success(f"📁 Files stored at:\n{LOCAL_STORAGE}")
+
 
 # ==============================
 # Register User
@@ -513,4 +513,5 @@ if choice == "View Data":
             if st.button("❌ Cancel"):
                 st.session_state["confirm_delete_all"] = False
                 slidein_message("Cancelled deletion.", "info")
+
 
