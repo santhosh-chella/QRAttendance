@@ -79,15 +79,15 @@ body {
     background-color: #080606;
     color: white;
     border: none;
-    width: 100%;          /* fill grid cell */
-    height: 50px;         /* fixed height */
+    width: 180px;          /* fixed width */
+    height: 50px;          /* fixed height */
     border-radius: 12px;
     font-size: 18px;
     cursor: pointer;
     transition: all 0.3s ease;
-    font-weight: 600;       
-    max-width: 200px;     /* max width stops buttons from stretching too far */
+    font-weight: 600;
 }
+
 
 .stButton > button:hover {
     background-color: #312D2D;       
@@ -242,9 +242,9 @@ def mark_attendance(user_id):
 # HOME PAGE
 # ==============================
 if st.session_state.page == "Home":
-    st.markdown('<div class="button-grid">', unsafe_allow_html=True)
     st.markdown("<h1 class='main-title'>Digital Attendance System</h1>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns(3, gap="large")
+
 
     with col1:
         if st.button("👤 Register User"):
@@ -255,6 +255,74 @@ if st.session_state.page == "Home":
     with col3:
         if st.button("📊 View Data"):
             set_page("View Data")
+    
+      # --- Dashboard Overview ---
+    st.markdown("<h3 style='text-align:center; color:#000; margin-top:30px;'>📈 Dashboard Overview</h3>", unsafe_allow_html=True)
+
+    # Read CSVs
+    df_users = pd.read_csv(USER_CSV)
+    df_att = pd.read_csv(ATTENDANCE_CSV)
+
+    total_users = len(df_users)
+    today_date = date.today().strftime("%Y-%m-%d")
+    today_attendance = len(df_att[df_att["date"] == today_date]) if not df_att.empty else 0
+    total_records = len(df_att)
+
+    # --- CSS for Dashboard Cards ---
+    st.markdown("""
+    <style>
+    .metric-container {
+        display: flex;
+        justify-content: center;
+        gap: 30px;
+        margin-top: 25px;
+        margin-bottom: 40px;
+        flex-wrap: wrap;
+    }
+    .metric-card {
+        background-color: white;
+        color: black;
+        border-radius: 12px;
+        box-shadow: 0px 4px 12px rgba(0,0,0,0.15);
+        width: 220px;
+        height: 120px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        font-family: 'sans-serif';
+        transition: all 0.3s ease;
+    }
+    .metric-card:hover {
+        transform: scale(1.05);
+        box-shadow: 0px 6px 20px rgba(0,0,0,0.25);
+    }
+    .metric-label {
+        font-size: 18px;
+        font-weight: 600;
+        margin-bottom: 6px;
+    }
+    .metric-value {
+        font-size: 26px;
+        font-weight: 700;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # --- Custom Styled Dashboard Cards ---
+    st.markdown(f"""
+    <div class="metric-container">
+        <div class="metric-card">
+            <div class="metric-label">👥 Total Users</div>
+            <div class="metric-value">{total_users}</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">🕒 Today's Attendance</div>
+            <div class="metric-value">{today_attendance}</div>
+        </div>
+      
+    </div>
+    """, unsafe_allow_html=True)
 
     st.markdown("<br><br><center>© 2025 Digital Attendance System</center>", unsafe_allow_html=True)
 
