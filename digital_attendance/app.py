@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import qrcode
 import shutil
+import calendar
+import datetime as dt
 from PIL import Image
 import os
 from datetime import datetime, date
@@ -395,13 +397,13 @@ if st.session_state.page == "Mark Attendance":
                     self.current_user = user_info
 
                     if status == "success":
-                        self.overlay_message = "✔ Attendance Marked"
+                        self.overlay_message = " Attendance Marked"
                         self.overlay_color = (0,200,0)
                     elif status == "duplicate":
-                        self.overlay_message = "⚠ Already Marked"
+                        self.overlay_message = " Already Marked"
                         self.overlay_color = (0,200,200)
                     elif status == "not_found":
-                        self.overlay_message = "❌ User Not Found"
+                        self.overlay_message = " User Not Found"
                         self.overlay_color = (0,0,200)
 
                     self.last_id = user_id
@@ -538,20 +540,236 @@ else:
             del st.session_state[k]
 
 # ==============================
-# VIEW DATA PAGE
+# VIEW DATA PAGE (Attendance Calendar)
 # ==============================
 if st.session_state.page == "View Data":
-    st.header("📊 View Data")
+    st.header("📅 Attendance Calendar")
     if st.button("🏠 Back to Home"):
         set_page("Home")
-    st.header("👤 Registered User")    
-    df_users = pd.read_csv(USER_CSV)
-    df_att = pd.read_csv(ATTENDANCE_CSV)
-    st.dataframe(df_users)
-    st.header("🕒 Attendance Records")
-    st.dataframe(df_att)
 
-    # Delete user record
+    # -------------------------
+    # Read attendance & user data
+    # -------------------------
+    df_att = pd.read_csv(ATTENDANCE_CSV)
+    df_users = pd.read_csv(USER_CSV)
+
+    # Normalize column names
+    df_att.columns = df_att.columns.str.strip().str.lower()
+    df_users.columns = df_users.columns.str.strip().str.lower()
+
+    # Ensure 'date' exists
+    if "date" not in df_att.columns:
+        st.error("⚠️ 'date' column missing in attendance.csv.")
+        st.stop()
+
+    # -------------------------
+    # Legend (Color Indicators)
+    # -------------------------
+    st.markdown("""
+    <style>
+    .legend-container {
+        display: flex;
+        justify-content: center;
+        gap: 20px;
+        margin-bottom: 20px;
+    }
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 16px;
+        font-weight: 500;
+    }
+    .legend-circle {
+        width: 18px;
+        height: 18px;
+        border-radius: 50%;
+        display: inline-block;
+    }
+    </style>
+    <div class="legend-container">
+        <div class="legend-item"><div class="legend-circle" style="background-color:#22bb33;"></div> Present</div>
+        <div class="legend-item"><div class="legend-circle" style="background-color:#ff4444;"></div> Absent</div>
+        
+    </div>
+    """, unsafe_allow_html=True)
+
+    # -------------------------
+    # Choose Month & User
+    # -------------------------
+    today = date.today()
+    selected_year = st.selectbox(
+        "Select Year",
+        list(range(today.year - 2, today.year + 1))[::-1],
+        index=0
+    )
+
+    selected_month = st.selectbox(
+        "Select Month",
+        list(calendar.month_name)[1:],
+        index=today.month - 1
+    )
+
+    user_list = df_users["name"].tolist() if not df_users.empty else []
+    selected_user = st.selectbox(
+        "Select User",
+        user_list if user_list else ["No users found"]
+    )
+
+    if not user_list:
+        st.info("No registered users found.")
+        st.stop()
+
+    # -------------------------
+    # Calendar Setup
+    # -------------------------
+    month_num = list(calendar.month_name).index(selected_month)
+    month_days = calendar.monthrange(selected_year, month_num)[1]
+    first_day = dt.date(selected_year, month_num, 1)
+
+    # Prepare attendance dataframe
+    df_att["date"] = pd.to_datetime(df_att["date"], errors="coerce").dt.date
+
+    # Filter for month
+    df_month = df_att[
+        (pd.to_datetime(df_att["date"], errors="coerce").dt.year == selected_year) &
+        (pd.to_datetime(df_att["date"], errors="coerce").dt.month == month_num)
+    ]
+
+    user_row = df_users[df_users["name"] == selected_user].iloc[0]
+    user_id = str(user_row["user_id"]) if "user_id" in user_row else None
+
+    # Get user's attendance dates
+    user_dates = set(df_month[df_month["user_id"].astype(str) == user_id]["date"].tolist())
+
+    # Get all recorded dates in that month (anyone’s attendance)
+    all_attendance_dates = set(df_month["date"].tolist())
+
+    # -------------------------
+    # Build Attendance Map
+    # -------------------------
+    attendance_map = {}
+    for day in range(1, month_days + 1):
+        d = dt.date(selected_year, month_num, day)
+
+        if d in user_dates:
+            attendance_map[d] = "#22bb33"  # ✅ Present (Green)
+        elif d in all_attendance_dates:
+            attendance_map[d] = "#ff4444"  # ❌ Absent (Red)
+        else:
+            attendance_map[d] = "#e0e0e0"  # ⚪ No Record (Normal)
+
+    # -------------------------
+    # Calendar UI (Responsive)
+    # -------------------------
+    st.markdown(
+        f"<h3 style='text-align:center; margin-top:10px;'>{selected_month} {selected_year}</h3>",
+        unsafe_allow_html=True
+    )
+
+    week_days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+    st.markdown("""
+    <style>        
+    .calendar {
+        display: grid;
+        grid-template-columns: repeat(7, 1fr);
+        gap: 10px;
+        text-align: center;
+        margin: auto;
+        max-width: 90%;
+        justify-items: center;
+    }
+
+    /* ===== Calendar Cells ===== */
+    .day-cell {
+        width: 60px;
+        height: 60px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 600;
+        color: white;
+        font-size: 16px;
+        box-shadow: 0 0 5px rgba(0,0,0,0.1);
+        transition: all 0.2s ease-in-out;
+    }
+    .day-cell:hover {
+        transform: scale(1.1);
+        cursor: pointer;
+    }
+
+    /* ===== Weekday Headers ===== */
+    .day-name {
+        font-weight: 700;
+        color: black;
+        font-size: 15px;
+    }
+
+    /* ===== Mobile Responsiveness ===== */
+    @media (max-width: 768px) {
+        .calendar {
+            gap: 6px;
+        }
+        .day-cell {
+            width: 45px;
+            height: 45px;
+            font-size: 13px;
+        }
+        .day-name {
+            font-size: 13px;
+        }
+    }
+
+    @media (max-width: 480px) {
+        .calendar {
+            gap: 5px;
+        }
+        .day-cell {
+            width: 35px;
+            height: 35px;
+            font-size: 12px;
+        }
+        .day-name {
+            font-size: 11px;
+        }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # Render weekday headers
+    st.markdown(
+        "<div class='calendar'>" +
+        "".join([f"<div class='day-name'>{d}</div>" for d in week_days]) +
+        "</div>",
+        unsafe_allow_html=True
+    )
+
+    # Start offset (Monday = 0)
+    start_offset = first_day.weekday()
+
+    html_calendar = "<div class='calendar'>"
+    html_calendar += "<div></div>" * start_offset  # Empty cells before first day
+
+    for day in range(1, month_days + 1):
+        current_date = dt.date(selected_year, month_num, day)
+        color = attendance_map.get(current_date, "#e0e0e0")
+        text_color = "white" if color != "#e0e0e0" else "black"
+        html_calendar += f"<div class='day-cell' style='background-color:{color}; color:{text_color};'>{day}</div>"
+
+    html_calendar += "</div>"
+    st.markdown(html_calendar, unsafe_allow_html=True)
+
+
+    # -------------------------
+    # Footer
+    # -------------------------
+    st.markdown("<br><center>© 2025 Digital Attendance System</center>", unsafe_allow_html=True)
+
+
+
+ # Delete user record
     st.subheader("🗑️ Delete User Record")
     if not df_users.empty:
         user_to_delete = st.selectbox("Select user to delete", df_users["user_id"].tolist())
